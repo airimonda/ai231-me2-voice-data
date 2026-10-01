@@ -4,7 +4,7 @@ the shared Drive `raw/` folder) into one master CSV for the actual ME2
 dataset build. Not needed by contributors.
 
 Usage:
-  python scripts/build_master_manifest.py --raw-dir ~/Drive/AI231-ME2-Voice-Data/raw \
+  python scripts/build_master_manifest.py --raw-dir ~/Drive/AI231-ME2-Voice-Data/raw   # contains train/ and test/ \
       --out data/master_manifest.csv
 """
 
@@ -23,9 +23,9 @@ def main():
     args = ap.parse_args()
 
     raw_dir = Path(args.raw_dir)
-    manifests = sorted(raw_dir.glob("*/manifest.csv"))
+    manifests = sorted(raw_dir.glob("*/*/manifest.csv"))  # raw/<train|test>/<speaker_id>/manifest.csv
     if not manifests:
-        raise SystemExit(f"No */manifest.csv found under {raw_dir}")
+        raise SystemExit(f"No train|test/<speaker_id>/manifest.csv found under {raw_dir}")
 
     all_rows = []
     status_counts = Counter()
@@ -33,6 +33,7 @@ def main():
     fieldnames: list[str] | None = None
     for manifest_path in manifests:
         speaker_dir = manifest_path.parent.name
+        split_dir = manifest_path.parent.parent.name
         with manifest_path.open() as f:
             reader = csv.DictReader(f)
             if fieldnames is None:
@@ -41,9 +42,12 @@ def main():
                 if row.get("speaker_id") != speaker_dir:
                     print(f"WARNING: {manifest_path}: speaker_id={row.get('speaker_id')!r} "
                           f"!= folder name {speaker_dir!r}")
+                if row.get("split") != split_dir:
+                    print(f"WARNING: {manifest_path}: split={row.get('split')!r} "
+                          f"!= folder name {split_dir!r}")
                 row["source_path"] = str((manifest_path.parent / row["filename"]).relative_to(raw_dir))
                 status_counts[row.get("status", "unvalidated")] += 1
-                speaker_counts[speaker_dir] += 1
+                speaker_counts[(split_dir, speaker_dir)] += 1
                 all_rows.append(row)
 
     out_path = Path(args.out)
@@ -53,13 +57,13 @@ def main():
         w.writeheader()
         w.writerows(all_rows)
 
-    print(f"Merged {len(manifests)} speakers, {len(all_rows)} rows -> {out_path}\n")
+    print(f"Merged {len(manifests)} manifests, {len(all_rows)} rows -> {out_path}\n")
     print("By status:")
     for status, n in status_counts.most_common():
         print(f"  {status:>14}: {n}")
     print("\nBy speaker:")
-    for speaker, n in sorted(speaker_counts.items()):
-        print(f"  {speaker:>20}: {n}")
+    for (split, speaker), n in sorted(speaker_counts.items()):
+        print(f"  {split:>5} {speaker:>20}: {n}")
 
     not_approved = sum(n for s, n in status_counts.items() if s != "approved")
     if not_approved:

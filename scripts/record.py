@@ -8,9 +8,13 @@ until you approve it, so whatever ends up in your manifest.csv is
 already the clean, final take -- there's no separate validation pass
 before upload.
 
+Two sets are recorded, into separate folders:
+  recordings/<speaker-id>/train/   optional -- you're asked for consent first
+  recordings/<speaker-id>/test/    always recorded
+
 No manual whisper.cpp build needed -- pywhispercpp ships prebuilt
-binaries for Windows/macOS/Linux and downloads the model automatically
-on first run.
+binaries for Windows/macOS/Linux. The whisper model is only downloaded if
+it isn't already on your machine.
 
 Run this with .venv's own python (built by `setup.py`), not your
 system's -- e.g. `.venv/bin/python scripts/record.py ...` on macOS/Linux
@@ -19,9 +23,11 @@ or `.venv\\Scripts\\python.exe scripts\\record.py ...` on Windows.
 Usage:
   .venv/bin/python scripts/record.py --speaker-id juandelacruz
   .venv/bin/python scripts/record.py --speaker-id juandelacruz --model small.en
-  .venv/bin/python scripts/record.py --speaker-id juandelacruz --approved-takes 3
+  .venv/bin/python scripts/record.py --speaker-id juandelacruz --train-takes 3 --test-takes 2
+  .venv/bin/python scripts/record.py --speaker-id juandelacruz --no-train   # skip the consent question, test set only
+  .venv/bin/python scripts/record.py --speaker-id juandelacruz --yes-train  # skip the consent question, record both
   .venv/bin/python scripts/record.py --speaker-id juandelacruz --labels TIMER ALARM
-  .venv/bin/python scripts/record.py --speaker-id juandelacruz --resume   # skip prompts already fully approved
+  .venv/bin/python scripts/record.py --speaker-id juandelacruz --resume   # skip prompts already fully approved in each set
 """
 
 from __future__ import annotations
@@ -47,10 +53,14 @@ import sounddevice as sd
 import soundfile as sf
 from pywhispercpp.model import Model
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from whisper_utils import resolve_model  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_RATE = 16000
+SPLITS = ("train", "test")
 MANIFEST_FIELDS = [
-    "speaker_id", "prompt_id", "label", "type", "text", "slot_value",
+    "speaker_id", "split", "prompt_id", "label", "type", "text", "slot_value",
     "take", "filename", "recorded_at", "whisper_transcript", "wer", "status",
 ]
 
@@ -108,7 +118,7 @@ def transcribe(model: Model, audio) -> str:
     return text
 
 
-def record_and_approve(prompt: dict, take: int, args, model: Model) -> dict | None:
+def record_and_approve(prompt: dict, take: int, split: str, args, model: Model) -> dict | None:
     """Record/transcribe/judge loop for one take. Returns the manifest
     row once approved, {"__quit__": True} on quit, or None if skipped."""
     expected_words = normalize(prompt["text"])
@@ -140,10 +150,11 @@ def record_and_approve(prompt: dict, take: int, args, model: Model) -> dict | No
             continue
 
         filename = f"{prompt['prompt_id']}_t{take}.wav"
-        out_dir = REPO_ROOT / "recordings" / args.speaker_id
+        out_dir = REPO_ROOT / "recordings" / args.speaker_id / split
         sf.write(str(out_dir / filename), audio, SAMPLE_RATE, subtype="PCM_16")
         return {
             "speaker_id": args.speaker_id,
+            "split": split,
             "prompt_id": prompt["prompt_id"],
             "label": prompt["label"],
             "type": prompt["type"],
@@ -158,28 +169,19 @@ def record_and_approve(prompt: dict, take: int, args, model: Model) -> dict | No
         }
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--speaker-id", required=True, help="your name or student number, no spaces (e.g. juandelacruz)")
-    ap.add_argument("--prompts", default=str(REPO_ROOT / "schema/prompts.csv"))
-    ap.add_argument("--model", default="base.en", help="pywhispercpp model name (auto-downloaded) or path to a local .bin")
-    ap.add_argument("--approved-takes", type=int, default=2, help="approved recordings wanted per prompt")
-    ap.add_argument("--duration", type=float, default=5.0, help="seconds per take")
-    ap.add_argument("--labels", nargs="*", default=None, help="only record these labels (default: all)")
-    ap.add_argument("--resume", action="store_true", help="skip prompts already fully approved in your manifest")
-    args = ap.parse_args()
+def ask_yes_no(question: str) -> bool:
+    while True:
+        ans = input(f"{question} [y/n] > ").strip().lower()
+        if ans in ("y", "yes"):
+            return True
+        if ans in ("n", "no"):
+            return False
+        print("  Please answer y or n.")
 
-    prompts = load_prompts(Path(args.prompts))
-    if args.labels:
-        wanted = set(args.labels)
-        prompts = [p for p in prompts if p["label"] in wanted]
-    if not prompts:
-        sys.exit("No prompts matched --labels; check schema/prompts.csv for valid label names.")
 
-    print(f"Loading whisper model '{args.model}' (first run downloads it automatically)...")
-    model = Model(args.model, redirect_whispercpp_logs_to=False)
-
-    out_dir = REPO_ROOT / "recordings" / args.speaker_id
+def run_split(split: str, prompts: list[dict], takes_wanted: int, args, model: Model) -> bool:
+    """Record one set (train or test). Returns True if the user quit early."""
+    out_dir = REPO_ROOT / "recordings" / args.speaker_id / split
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.csv"
     existing = load_existing_manifest(manifest_path)
@@ -187,19 +189,18 @@ def main():
     for row in existing:
         approved_counts[row["prompt_id"]] = approved_counts.get(row["prompt_id"], 0) + 1
 
-    print(f"Speaker: {args.speaker_id}")
-    print(f"{len(prompts)} prompts, {args.approved_takes} approved takes each.\n")
+    print(f"\n=== {split.upper()} set: {len(prompts)} prompts, {takes_wanted} approved take(s) each ===\n")
 
     new_rows: list[dict] = []
     quit_early = False
     for i, prompt in enumerate(prompts, start=1):
         already = approved_counts.get(prompt["prompt_id"], 0)
-        if args.resume and already >= args.approved_takes:
+        if args.resume and already >= takes_wanted:
             continue
-        for take in range(already + 1, args.approved_takes + 1):
-            print(f"[{i}/{len(prompts)}] ({prompt['label']}, take {take}/{args.approved_takes}) say:")
+        for take in range(already + 1, takes_wanted + 1):
+            print(f"[{split} {i}/{len(prompts)}] ({prompt['label']}, take {take}/{takes_wanted}) say:")
             print(f"    \"{prompt['text']}\"")
-            row = record_and_approve(prompt, take, args, model)
+            row = record_and_approve(prompt, take, split, args, model)
             if row is None:
                 break  # skipped -- move to next prompt
             if row.get("__quit__"):
@@ -211,18 +212,71 @@ def main():
             break
 
     if not new_rows:
-        print("\nNo new recordings.")
-        return
+        print(f"\nNo new {split} recordings.")
+    else:
+        with manifest_path.open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS)
+            w.writeheader()
+            w.writerows(existing + new_rows)
+        print(f"\nSaved {len(new_rows)} new approved {split} recordings. Manifest: {manifest_path}")
+    return quit_early
 
-    all_rows = existing + new_rows
-    with manifest_path.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS)
-        w.writeheader()
-        w.writerows(all_rows)
-    print(f"\nSaved {len(new_rows)} new approved recordings. Manifest: {manifest_path}")
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--speaker-id", required=True, help="your name or student number, no spaces (e.g. juandelacruz)")
+    ap.add_argument("--prompts", default=str(REPO_ROOT / "schema/prompts.csv"))
+    ap.add_argument("--model", default="base.en", help="pywhispercpp model name (downloaded only if not already installed) or path to a local .bin")
+    ap.add_argument("--train-takes", type=int, default=2, help="approved recordings per prompt in the train set")
+    ap.add_argument("--test-takes", type=int, default=1, help="approved recordings per prompt in the test set")
+    ap.add_argument("--duration", type=float, default=5.0, help="seconds per take")
+    ap.add_argument("--labels", nargs="*", default=None, help="only record these labels (default: all)")
+    ap.add_argument("--resume", action="store_true", help="skip prompts already fully approved in your manifests")
+    consent = ap.add_mutually_exclusive_group()
+    consent.add_argument("--yes-train", action="store_true", help="donate training data without asking")
+    consent.add_argument("--no-train", action="store_true", help="skip the train set without asking")
+    args = ap.parse_args()
+
+    prompts = load_prompts(Path(args.prompts))
+    if args.labels:
+        wanted = set(args.labels)
+        prompts = [p for p in prompts if p["label"] in wanted]
+    if not prompts:
+        sys.exit("No prompts matched --labels; check schema/prompts.csv for valid label names.")
+
+    print(f"Speaker: {args.speaker_id}\n")
+
+    n_train = len(prompts) * args.train_takes
+    if args.yes_train:
+        donate = True
+    elif args.no_train:
+        donate = False
+    else:
+        mins = n_train * (args.duration + 3) / 60  # rough: recording + review time per clip
+        print("Would you like to donate TRAINING data as well as the test set?")
+        print(f"  Train set: {len(prompts)} prompts x {args.train_takes} take(s) = {n_train} recordings (roughly {mins:.0f} min).")
+        print(f"  Test set:  {len(prompts)} prompts x {args.test_takes} take(s) = {len(prompts) * args.test_takes} recordings (always recorded).")
+        donate = ask_yes_no("Donate training data?")
+
+    sets = []
+    if donate:
+        sets.append(("train", args.train_takes))
+    sets.append(("test", args.test_takes))
+    print("Recording: " + " + ".join(name for name, _ in sets) + " set(s).")
+
+    print(f"Loading whisper model '{args.model}'...")
+    model = Model(resolve_model(args.model), redirect_whispercpp_logs_to=False)
+
+    quit_early = False
+    for split, takes in sets:
+        if run_split(split, prompts, takes, args, model):
+            quit_early = True
+            break
+
     if quit_early:
-        print(f"Resume later with: {sys.executable} scripts/record.py "
-              f"--speaker-id {args.speaker_id} --resume --model {args.model}")
+        print(f"\nResume later with: {sys.executable} scripts/record.py "
+              f"--speaker-id {args.speaker_id} {'--yes-train' if donate else '--no-train'} --resume --model {args.model}")
+    print("\nUpload recordings/<speaker-id>/train/ and recordings/<speaker-id>/test/ to SEPARATE Drive folders -- see README.md.")
 
 
 if __name__ == "__main__":

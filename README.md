@@ -2,15 +2,18 @@
 
 Recording tool for pooling classmates' voice samples for the AI231
 Machine Exercise 2 (on-device Voice Command Model) group dataset. Every
-contributor reads the same fixed prompt list; for each take, whisper.cpp
+contributor reads the same fixed prompt list and records two sets: an
+optional **train** set (you're asked for consent first, and told how many
+prompts it involves) and a **test** set (always recorded); for each take, whisper.cpp
 transcribes it immediately and the contributor judges on the spot
 whether to keep it or retry. Nothing gets saved until approved, so
 everything that reaches the shared pool is already clean.
 
 No compiler, cmake, or manual whisper.cpp build required — the whisper
 model runs through [pywhispercpp](https://github.com/absadiki/pywhispercpp),
-which ships prebuilt binaries for Windows, macOS, and Linux and downloads
-the model automatically on first run.
+which ships prebuilt binaries for Windows, macOS, and Linux. The model is
+only downloaded if it isn't already on your machine — setup and recording
+both scan for an existing copy first.
 
 **Scope & privacy:** this repo (code, prompt schema, docs) is public and
 contains no one's voice. The actual recordings go to a separate,
@@ -42,22 +45,33 @@ Then run everything with `.venv`'s own python, so there's never a
 (Or activate `.venv` first — `source .venv/bin/activate` /
 `.venv\Scripts\activate` — then just `python scripts/record.py ...`.)
 
-Then upload `recordings/<yourid>/` to the shared Drive folder (see
-below). Full walkthrough: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+`record.py` first asks whether you want to donate training data (it tells
+you how many prompts/recordings that is). Answer **yes** to record the
+train set and then the test set; answer **no** to record the test set
+only. Then upload the train and test sets to **separate** Drive folders
+(see below). Full walkthrough: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Uploading your recordings
 
 1. After `record.py` finishes (everything in it is already approved),
-   you'll have a folder at `recordings/<your-speaker-id>/` with your
-   `.wav` files and one `manifest.csv`.
-2. Go to the shared Drive folder: **`AI231-ME2-Voice-Data/raw/`**
-3. Upload your entire `recordings/<your-speaker-id>/` folder into
-   `raw/`, so it lands as:
+   you'll have, under `recordings/<your-speaker-id>/`:
    ```
-   AI231-ME2-Voice-Data/raw/<your-speaker-id>/
+   train/   .wav files + manifest.csv   (only if you said yes to donating)
+   test/    .wav files + manifest.csv
+   ```
+2. Go to the shared Drive folder: **`AI231-ME2-Voice-Data/raw/`**
+3. **Upload the train and test sets into separate folders — never mix
+   them.** Upload `train/` into `raw/train/` and `test/` into `raw/test/`,
+   each under a folder named after your speaker id, so it lands as:
+   ```
+   AI231-ME2-Voice-Data/raw/train/<your-speaker-id>/
+     manifest.csv
+     *.wav
+   AI231-ME2-Voice-Data/raw/test/<your-speaker-id>/
      manifest.csv
      *.wav
    ```
+   (If you declined to donate training data, upload only the `test/` set.)
 4. **Your Drive folder name must exactly match the `--speaker-id` you
    used when recording** — lowercase, no spaces (e.g. `juandelacruz` or
    your student number `2024-12345`), matching whatever convention the
@@ -79,15 +93,18 @@ voice recordings. Full layout and maintainer-side details:
 ```
 setup.py                     one-shot installer: builds .venv (finding a
                               3.10+ Python automatically if needed),
-                              installs requirements, pre-downloads the model
+                              installs requirements, downloads the model only if absent
 schema/prompts.csv          93 prompts: 13 fixed intents (3 phrasings each)
                              + 6 slotted intents (3 phrasings x 3 example
                              values each). One row = one utterance to say.
 scripts/
-  record.py                  record -> whisper transcribes -> you approve -> saved,
-                              one prompt at a time, into recordings/<speaker_id>/
+  record.py                  consent question, then record -> whisper transcribes ->
+                              you approve -> saved, one prompt at a time, into
+                              recordings/<speaker_id>/train/ and /test/
+  whisper_utils.py           finds an already-installed whisper model so it
+                              is never downloaded twice
   build_master_manifest.py   maintainer-only: merges every contributor's
-                              manifest.csv (from Drive) into one master CSV
+                              manifest.csv (from Drive raw/train + raw/test) into one master CSV
 docs/drive_folder_structure.md   how the shared Drive folder is organized
 CONTRIBUTING.md                   step-by-step contributor guide
 ```
