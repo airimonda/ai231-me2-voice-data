@@ -9,15 +9,16 @@ only, no voices) that's fine to keep public.
 ## Upload steps (for each recorder)
 
 1. After you finish `record.py` (and everything's approved), you'll have
-   a folder at `recordings/<your-speaker-id>/` containing your `.wav`
-   files and one `manifest.csv`.
+   `recordings/<your-speaker-id>/train/` (only if you chose to donate
+   training data) and `recordings/<your-speaker-id>/test/`, each with
+   `.wav` files and one `manifest.csv`.
 2. Go to the shared Drive folder: **`AI231-ME2-Voice-Data/raw/`**
-3. Upload your entire `recordings/<your-speaker-id>/` folder into
-   `raw/`, so it lands as:
+3. **Train and test go in separate folders.** Upload `train/` into
+   `raw/train/` and `test/` into `raw/test/`, each as a folder named
+   after your speaker id:
    ```
-   AI231-ME2-Voice-Data/raw/<your-speaker-id>/
-     manifest.csv
-     *.wav
+   AI231-ME2-Voice-Data/raw/train/<your-speaker-id>/
+   AI231-ME2-Voice-Data/raw/test/<your-speaker-id>/
    ```
 4. **Your Drive folder name must exactly match the `--speaker-id` you
    used when recording** — lowercase, no spaces (e.g. `juandelacruz` or
@@ -36,15 +37,17 @@ only, no voices) that's fine to keep public.
 ```
 AI231-ME2-Voice-Data/              (shared Drive folder root)
   raw/
-    <speaker_id>/                  one folder per contributor
-      manifest.csv                 written by record.py -- every row is
-                                    already status=approved (the contributor
-                                    judged it live against the whisper.cpp
-                                    transcript before it was ever saved)
-      TIMER_V1_1_t1.wav
-      TIMER_V1_1_t2.wav
-      ALARM_V2_3_t1.wav
-      ...
+    train/
+      <speaker_id>/                one folder per contributor who donated training data
+        manifest.csv               written by record.py -- every row is
+                                    already status=approved
+        TIMER_V1_1_t1.wav
+        ...
+    test/
+      <speaker_id>/                one folder per contributor
+        manifest.csv
+        TIMER_V1_1_t1.wav
+        ...
   _merged/                         maintainer-only output of
                                     scripts/build_master_manifest.py
                                     (master_manifest.csv + pooled stats)

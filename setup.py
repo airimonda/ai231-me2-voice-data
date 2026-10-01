@@ -17,7 +17,8 @@ What it does:
      it qualifies, otherwise searches common alternates).
   2. Creates .venv/ with that interpreter.
   3. Installs requirements.txt into .venv.
-  4. Pre-downloads the default whisper model (base.en) so your first
+  4. Checks whether the default whisper model (base.en) is already on
+     your machine; downloads it (~140MB) only if it isn't, so your first
      recording session doesn't stall on a download mid-prompt.
 
 Afterward, run scripts with .venv's own python directly -- this avoids
@@ -141,12 +142,12 @@ def main():
     subprocess.run([vpy, "-m", "pip", "install", "--upgrade", "pip"], check=True)
     subprocess.run([vpy, "-m", "pip", "install", "-r", str(REPO_ROOT / "requirements.txt")], check=True)
 
-    print("\nPre-downloading the whisper model (one-time, ~140MB for base.en)...")
+    print("\nChecking for an existing whisper model...")
     subprocess.run(
         [vpy, "-c",
-         "from pywhispercpp.model import Model; "
-         f"Model('{DEFAULT_MODEL}', redirect_whispercpp_logs_to=False)"],
-        check=True,
+         "import sys; sys.path.insert(0, 'scripts'); "
+         f"from whisper_utils import resolve_model; resolve_model('{DEFAULT_MODEL}')"],
+        check=True, cwd=REPO_ROOT,
     )
 
     print("\nSetup complete. Run scripts with .venv's own python directly:")

@@ -1,7 +1,9 @@
 # Contributing your recordings
 
-Takes about 30-45 minutes for the full prompt list (93 prompts x 2
-approved takes = 186 approved clips at 5s each). You can retry a take as
+The **test set** (93 prompts x 1 approved take = 93 clips at 5s each) is
+required. The **train set** (93 prompts x 2 approved takes = 186 clips,
+roughly 30-45 minutes) is optional — `record.py` asks for your consent
+before recording it. You can retry a take as
 many times as you want before approving it — only approved takes count.
 
 ## 0. Prerequisites
@@ -31,9 +33,9 @@ python setup.py      # Windows
 
 This builds its own `.venv` in this folder (searching your system for a
 3.10+ Python first if the one that ran this script is too old), installs
-`requirements.txt` into it, and pre-downloads the default whisper model
-(`base.en`, ~140MB) so your first recording session doesn't stall on a
-download. Windows, macOS, and Linux all just work — the whisper binary
+`requirements.txt` into it, and checks for an existing whisper model
+and downloads the default (`base.en`, ~140MB) only if you don't already
+have it, so your first recording session doesn't stall on a download. Windows, macOS, and Linux all just work — the whisper binary
 comes prebuilt inside the `pywhispercpp` package. Safe to re-run; it
 reuses `.venv` if it's already there and looks fine.
 
@@ -58,6 +60,10 @@ Use the `speaker_id` convention your group agreed on (see
 `docs/drive_folder_structure.md`) — it becomes both your output folder
 name and your Drive folder name, so get it right the first time.
 
+First it asks whether you want to donate training data, telling you how
+many prompts and recordings that involves. `y` = record train set, then
+test set. `n` = test set only.
+
 For each prompt, one take at a time:
 
 1. It prints the prompt. Press Enter, speak within the recording window.
@@ -79,18 +85,21 @@ the WER number; the transcript is there to catch actual
 silence/mumbles/misreads, not to gate on exact string matches.
 
 Options:
-- `--approved-takes 3` — how many approved recordings you want per
-  prompt (default 2)
+- `--train-takes 3` / `--test-takes 2` — approved recordings per prompt
+  in each set (defaults 2 and 1)
+- `--yes-train` / `--no-train` — answer the consent question up front
 - `--labels TIMER ALARM` — only record specific intents (default: all)
 - `--resume` — skip prompts that already have enough approved takes in
   your manifest (to redo a specific one anyway, delete its row from
   `manifest.csv` and its `.wav` first, then run with `--resume`)
 - `--model small.en` — use a bigger/more accurate whisper model instead
-  of the default `base.en` (auto-downloaded on first use)
+  of the default `base.en` (downloaded only if not already installed)
 
 ## 4. Upload
 
-Once you're through the list, upload your entire `recordings/<yourid>/`
-folder to the shared Drive, following `docs/drive_folder_structure.md`
-exactly (folder name = your `speaker_id`). Don't commit recordings to
-this git repo — see `.gitignore`; audio lives on Drive only.
+You'll have `recordings/<yourid>/train/` (if you donated) and
+`recordings/<yourid>/test/`. Upload them to **separate** Drive folders:
+`train/` -> `raw/train/<yourid>/`, `test/` -> `raw/test/<yourid>/`,
+following `docs/drive_folder_structure.md` exactly (folder name = your
+`speaker_id`). Don't commit recordings to this git repo — see
+`.gitignore`; audio lives on Drive only.
